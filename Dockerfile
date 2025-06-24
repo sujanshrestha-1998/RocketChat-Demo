@@ -23,7 +23,7 @@ ENV PATH="$DENO_INSTALL/bin:$PATH"
 
 # Set workdir and clone Rocket.Chat source
 WORKDIR /app
-RUN git clone --depth 1 --branch 7.7.1 https://github.com/RocketChat/Rocket.Chat.git .
+RUN git clone --branch 7.7.1 https://github.com/RocketChat/Rocket.Chat.git .
 RUN ls -la
 
 # Install dependencies and build packages
@@ -65,8 +65,5 @@ RUN useradd -m myuser && chown -R myuser:myuser /app
 USER myuser
 
 EXPOSE 3000
-
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000/api/v1/info || exit 1
 
 CMD ["node", "main.js"]
