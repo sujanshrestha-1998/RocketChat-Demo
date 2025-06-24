@@ -26,13 +26,9 @@ RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
   | xargs -r apt-mark manual \
   && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false
 
-# Create user and directories
+# Create user first (without creating /app directory yet)
 RUN groupadd -r rocketchat \
-  && useradd -r -g rocketchat rocketchat \
-  && mkdir -p /app/uploads \
-  && chown rocketchat:rocketchat /app/uploads
-
-VOLUME /app/uploads
+  && useradd -r -g rocketchat rocketchat
 
 # Install build dependencies
 RUN set -eux \
@@ -48,8 +44,14 @@ RUN set -eux \
     git \
   && rm -rf /var/lib/apt/lists/*
 
-# Clone specific version from repository (before setting WORKDIR)
+# Clone specific version from repository
 RUN git clone --depth 1 --branch 7.1.6 https://github.com/RocketChat/Rocket.Chat.git /app
+
+# Create uploads directory and set permissions
+RUN mkdir -p /app/uploads \
+  && chown -R rocketchat:rocketchat /app
+
+VOLUME /app/uploads
 
 # Now set the working directory
 WORKDIR /app
