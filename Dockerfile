@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim
+FROM node:18-bookworm-slim
 
 # Install Deno
 ENV DENO_VERSION=1.37.1
@@ -42,7 +42,12 @@ RUN set -eux \
     curl \
     gnupg \
     git \
+    python3-dev \
+    build-essential \
   && rm -rf /var/lib/apt/lists/*
+
+# Install Yarn
+RUN npm install -g yarn
 
 # Clone specific version from repository
 RUN git clone --depth 1 --branch 7.1.6 https://github.com/RocketChat/Rocket.Chat.git /app
@@ -64,26 +69,37 @@ ENV HOME=/tmp
 ENV PORT=3000
 ENV ROOT_URL=http://localhost:3000
 
-# Install dependencies and build (split into separate steps for better debugging)
-RUN set -eux \
-  && echo "Installing root dependencies..." \
-  && npm install --unsafe-perm=true
+# Set Node.js memory limit and other build optimizations
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+ENV METEOR_ALLOW_SUPERUSER=true
 
+# Install dependencies using Yarn (better workspace support)
+RUN set -eux \
+  && echo "Node version: $(node --version)" \
+  && echo "NPM version: $(npm --version)" \
+  && echo "Yarn version: $(yarn --version)" \
+  && echo "Installing dependencies with Yarn..." \
+  && yarn install --frozen-lockfile --network-timeout 300000
+
+# Build the application
 RUN set -eux \
   && echo "Building application..." \
-  && npm run build
+  && yarn build
 
+# Install production dependencies in the meteor build using npm
 RUN set -eux \
   && echo "Installing production dependencies..." \
   && cd apps/meteor/.meteor/local/build/programs/server \
-  && npm install --unsafe-perm=true --production
+  && npm install --unsafe-perm=true --production --timeout=300000
 
+# Clean up and set final permissions
 RUN set -eux \
+  && yarn cache clean \
   && npm cache clear --force \
   && chown -R rocketchat:rocketchat /app
 
 # Clean up build dependencies to reduce image size
-RUN apt-get purge -y --auto-remove g++ make python3 git \
+RUN apt-get purge -y --auto-remove g++ make python3-dev build-essential git \
   && apt-get autoremove -y \
   && apt-get clean
 
