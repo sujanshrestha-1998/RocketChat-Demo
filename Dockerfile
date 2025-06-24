@@ -48,11 +48,11 @@ RUN set -eux \
     git \
   && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# Clone specific version from repository (before setting WORKDIR)
+RUN git clone --depth 1 --branch 7.1.6 https://github.com/RocketChat/Rocket.Chat.git /app
 
-# Clone specific version from repository
-RUN git clone --depth 1 --branch 7.1.6 https://github.com/RocketChat/Rocket.Chat.git /app \
-  && cd /app
+# Now set the working directory
+WORKDIR /app
 
 # Set environment variables
 ENV NODE_ENV=production
@@ -77,9 +77,6 @@ RUN apt-get purge -y --auto-remove g++ make python3 git \
   && apt-get clean
 
 USER rocketchat
-
 WORKDIR /app/apps/meteor/.meteor/local/build
-
 EXPOSE 3000
-
 CMD ["node", "main.js"]
