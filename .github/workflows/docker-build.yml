@@ -1,6 +1,9 @@
 name: Build Rocket.Chat Docker Image
 
 on:
+  push:
+    branches:
+      - test1
   workflow_dispatch:
 
 jobs:
