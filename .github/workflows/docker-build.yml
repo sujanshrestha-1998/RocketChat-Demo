@@ -11,27 +11,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '14'
-
-      - name: Install Meteor
-        run: curl https://install.meteor.com/ | sh
-
-      - name: Install npm dependencies
-        run: |
-          npm install
-          meteor npm install
-
-      - name: Build Meteor bundle
-        run: meteor build --directory ./build --architecture=os.linux.x86_64
-
       - name: Build Docker image
-        run: docker build -t my-custom-rocketchat ./build/bundle
-
-      - name: List docker images
+        run: docker build -t my-custom-rocketchat .
+      
+      - name: List Docker images
         run: docker images
