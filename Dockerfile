@@ -15,7 +15,12 @@ RUN curl https://install.meteor.com/ | sh
 
 WORKDIR /app
 
+# Clone Rocket.Chat source directly into /app
 RUN git clone --branch 7.7.1 https://github.com/RocketChat/Rocket.Chat.git .
+
+# Debug - verify Meteor project files
+RUN ls -la
+RUN ls -la .meteor
 
 RUN node --version
 RUN yarn --version
