@@ -1,4 +1,5 @@
-FROM node:14-bookworm-slim
+FROM node:14-bullseye-slim
+
 
 # Install Deno
 ENV DENO_VERSION=1.37.1
