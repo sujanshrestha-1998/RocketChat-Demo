@@ -1,77 +1,66 @@
-FROM node:14-bullseye-slim
+FROM node:22.14.0-bullseye-slim
 
+LABEL maintainer="buildmaster@rocket.chat"
 
-# Install Deno
-ENV DENO_VERSION=1.37.1
-RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
-  && case "${dpkgArch##*-}" in \
-  amd64) ARCH='x86_64';; \
-  arm64) ARCH='aarch64';; \
-  *) echo "unsupported Deno architecture"; exit 1 ;; \
-  esac \
-  && set -ex \
-  && apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && rm -rf /var/lib/apt/lists/* \
-  && curl -fsSL https://dl.deno.land/release/v${DENO_VERSION}/deno-${ARCH}-unknown-linux-gnu.zip --output /tmp/deno-${ARCH}-unknown-linux-gnu.zip \
-  && echo "3ebb3c234c4ea5d914eb394af340e08ae0787e95ca8ec2c58b869752760faa00 /tmp/deno-x86_64-unknown-linux-gnu.zip" | sha256sum -c - \
-  && unzip /tmp/deno-${ARCH}-unknown-linux-gnu.zip -d /tmp \
-  && rm /tmp/deno-${ARCH}-unknown-linux-gnu.zip \
-  && chmod 755 /tmp/deno \
-  && mv /tmp/deno /usr/local/bin/deno
+# Install MongoDB and dependencies
+ENV MONGO_MAJOR=5.0 \
+    MONGO_VERSION=5.0.5
 
-# Create app user
-RUN groupadd -r rocketchat && useradd -r -g rocketchat rocketchat
-
-# Install build deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN set -x \
+    && apt-get update \
+    && apt-get install -y wget gnupg dirmngr pwgen \
+    && wget -qO - "https://www.mongodb.org/static/pgp/server-$MONGO_MAJOR.asc" | apt-key add - \
+    && echo "deb http://repo.mongodb.org/apt/debian buster/mongodb-org/$MONGO_MAJOR main" | tee "/etc/apt/sources.list.d/mongodb-org-$MONGO_MAJOR.list" \
+    && apt-get update \
+    && apt-get install -y \
+    mongodb-org=$MONGO_VERSION \
+    mongodb-org-server=$MONGO_VERSION \
+    mongodb-org-shell=$MONGO_VERSION \
+    mongodb-org-mongos=$MONGO_VERSION \
+    mongodb-org-tools=$MONGO_VERSION \
     fontconfig \
-    g++ \
-    make \
-    python3 \
-    ca-certificates \
-    curl \
-    gnupg \
-    git \
-    python3-dev \
-    build-essential \
-  && rm -rf /var/lib/apt/lists/*
+    && apt-get clean my room \
+    && groupadd -g 65533 -r rocketchat \
+    && useradd -u 65533 -r -g rocketchat rocketchat \
+    && mkdir -p /app/uploads \
+    && chown rocketchat:rocketchat /app/uploads
 
-# Clone Rocket.Chat
-RUN git clone --depth 1 --branch 7.1.6 https://github.com/RocketChat/Rocket.Chat.git /app
+# --chown requires Docker 17.12 and works only on Linux
+ADD --chown=rocketchat:rocketchat . /app
+ADD --chown=rocketchat:rocketchat entrypoint.sh /app/bundle/
 
-# Set correct ownership and create uploads
-RUN mkdir -p /app/uploads && chown -R rocketchat:rocketchat /app
+RUN aptMark="$(apt-mark showmanual)" \
+    && apt-get install -y --no-install-recommends g++ make python ca-certificates \
+    && cd /app/bundle/programs/server \
+    && npm install \
+    && apt-mark auto '.*' > /dev/null \
+    && apt-mark manual $aptMark > /dev/null \
+    && find /usr/local -type f -executable -exec ldd '{}' ';' \
+    | awk '/=>/ { print $(NF-1) }' \
+    | sort -u \
+    | xargs -r dpkg-query --search \
+    | cut -d: -f1 \
+    | sort -u \
+    | xargs -r apt-mark manual \
+    && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
+    && npm cache clear --force
 
 VOLUME /app/uploads
-WORKDIR /app
 
-# Environment variables
-ENV NODE_ENV=production \
-    DEPLOY_METHOD=docker-official \
-    MONGO_URL=mongodb://db:27017/meteor \
+WORKDIR /app/bundle
+
+# needs a mongoinstance - defaults to container linking with alias 'mongo'
+ENV DEPLOY_METHOD=docker-preview \
+    NODE_ENV=production \
+    MONGO_URL=mongodb://localhost:27017/rocketchat \
+    MONGO_OPLOG_URL=mongodb://localhost:27017/local \
     HOME=/tmp \
     PORT=3000 \
     ROOT_URL=http://localhost:3000 \
-    NODE_OPTIONS="--max-old-space-size=4096" \
-    METEOR_ALLOW_SUPERUSER=true
+    Accounts_AvatarStorePath=/app/uploads
 
-# Install dependencies
-RUN yarn install --network-timeout 300000
-
-# Build app
-RUN yarn build
-
-# Install prod deps in built server
-RUN cd apps/meteor/.meteor/local/build/programs/server \
-  && npm install --unsafe-perm=true --production --timeout=300000
-
-# Clean up
-RUN yarn cache clean \
-  && npm cache clean --force \
-  && chown -R rocketchat:rocketchat /app \
-  && apt-get purge -y --auto-remove g++ make python3-dev build-essential git \
-  && apt-get autoremove -y && apt-get clean
-
-USER rocketchat
-WORKDIR /app/apps/meteor/.meteor/local/build
 EXPOSE 3000
-CMD ["node", "main.js"]
+
+RUN chmod +x /app/bundle/entrypoint.sh
+
+ENTRYPOINT /app/bundle/entrypoint.sh
