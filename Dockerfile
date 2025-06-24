@@ -1,17 +1,16 @@
 # Stage 1: Builder
 FROM node:22-bullseye-slim AS builder
 
-# Install git, curl, python3, make, g++ (for native builds) and n (Node version manager)
-RUN apt-get update && apt-get install -y git curl python3 make g++ && \
-    npm install -g n
+# Install git, curl, python3, make, g++, build-essential and libs needed by Meteor and npm modules
+RUN apt-get update && apt-get install -y \
+    git curl python3 make g++ build-essential libcairo2 libpango1.0-0 libjpeg-dev libgif-dev librsvg2-dev
 
-# Install exact Node 22.14.0 with n
-RUN n 22.14.0
+# Install n (Node version manager) and switch to exact Node 22.14.0
+RUN npm install -g n && n 22.14.0
 
-# Make sure PATH uses Node 22.14.0
 ENV PATH="/usr/local/n/versions/node/22.14.0/bin:$PATH"
 
-# Enable Corepack and prepare Yarn 4.7.0
+# Enable corepack and prepare Yarn 4.7.0
 RUN corepack enable && corepack prepare yarn@4.7.0 --activate
 
 # Install Meteor
@@ -19,22 +18,26 @@ RUN curl https://install.meteor.com/ | sh
 
 WORKDIR /app
 
-# Clone Rocket.Chat v7.7.1 source
+# Clone Rocket.Chat source
 RUN git clone --branch 7.7.1 https://github.com/RocketChat/Rocket.Chat.git .
 
-# Install dependencies with Yarn
+# Verify versions (optional debug)
+RUN node --version
+RUN yarn --version
+RUN meteor --version
+
+# Install dependencies
 RUN yarn install
 
-# Build Rocket.Chat bundle for Linux
-RUN meteor build --directory ./build --architecture=os.linux.x86_64
+# Build Rocket.Chat bundle (verbose output)
+RUN meteor build --directory ./build --architecture=os.linux.x86_64 --verbose
 
-# Stage 2: Runtime
+# Stage 2: Runtime image
 FROM node:22-bullseye-slim
 
-# Install n and set exact Node 22.14.0 in runtime image
-RUN apt-get update && apt-get install -y curl python3 make g++ && \
-    npm install -g n && \
-    n 22.14.0
+# Install curl, python3, make, g++ and n, then install Node 22.14.0
+RUN apt-get update && apt-get install -y curl python3 make g++ build-essential && \
+    npm install -g n && n 22.14.0
 
 ENV PATH="/usr/local/n/versions/node/22.14.0/bin:$PATH" \
     ROOT_URL=http://localhost \
