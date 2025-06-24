@@ -8,14 +8,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout source
+        uses: actions/checkout@v3
 
-      - name: Check current directory and files
+      - name: Show files in workspace
         run: |
           pwd
           ls -la
 
       - name: Build Docker image
         run: docker build -t my-custom-rocketchat .
-      
-      - name: List Docker images
-        run: docker images
