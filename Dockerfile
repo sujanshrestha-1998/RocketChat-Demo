@@ -64,12 +64,21 @@ ENV HOME=/tmp
 ENV PORT=3000
 ENV ROOT_URL=http://localhost:3000
 
-# Install dependencies and build
+# Install dependencies and build (split into separate steps for better debugging)
 RUN set -eux \
-  && npm install --unsafe-perm=true \
-  && npm run build \
+  && echo "Installing root dependencies..." \
+  && npm install --unsafe-perm=true
+
+RUN set -eux \
+  && echo "Building application..." \
+  && npm run build
+
+RUN set -eux \
+  && echo "Installing production dependencies..." \
   && cd apps/meteor/.meteor/local/build/programs/server \
-  && npm install --unsafe-perm=true --production \
+  && npm install --unsafe-perm=true --production
+
+RUN set -eux \
   && npm cache clear --force \
   && chown -R rocketchat:rocketchat /app
 
