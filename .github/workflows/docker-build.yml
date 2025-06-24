@@ -11,6 +11,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
+      - name: Check current directory and files
+        run: |
+          pwd
+          ls -la
+
       - name: Build Docker image
         run: docker build -t my-custom-rocketchat .
       
