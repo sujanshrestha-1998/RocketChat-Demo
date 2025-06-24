@@ -1,66 +1,71 @@
-FROM node:22.14.0-bullseye-slim
+FROM node:22.14.0-alpine3.20
 
 LABEL maintainer="buildmaster@rocket.chat"
 
-# Install MongoDB and dependencies
-ENV MONGO_MAJOR=5.0 \
-    MONGO_VERSION=5.0.5
+ENV LANG=C.UTF-8
 
-RUN set -x \
-    && apt-get update \
-    && apt-get install -y wget gnupg dirmngr pwgen \
-    && wget -qO - "https://www.mongodb.org/static/pgp/server-$MONGO_MAJOR.asc" | apt-key add - \
-    && echo "deb http://repo.mongodb.org/apt/debian buster/mongodb-org/$MONGO_MAJOR main" | tee "/etc/apt/sources.list.d/mongodb-org-$MONGO_MAJOR.list" \
-    && apt-get update \
-    && apt-get install -y \
-    mongodb-org=$MONGO_VERSION \
-    mongodb-org-server=$MONGO_VERSION \
-    mongodb-org-shell=$MONGO_VERSION \
-    mongodb-org-mongos=$MONGO_VERSION \
-    mongodb-org-tools=$MONGO_VERSION \
-    fontconfig \
-    && apt-get clean my room \
-    && groupadd -g 65533 -r rocketchat \
-    && useradd -u 65533 -r -g rocketchat rocketchat \
-    && mkdir -p /app/uploads \
-    && chown rocketchat:rocketchat /app/uploads
+# `nogroup` group is historically reserved for NFS.
+# We don't use any NFS related tools in this image.
+# For the same reason of NFS using the gid, we can also use it as long as there are no conflicts in terms of running processes with the same egid (which is 1 in our case).
+# While 65533 raw gid could be used, renaming nogroup to rocketchat here for maximum compatibility with older debian image.
+# More info on nobody/nogroup - https://wiki.ubuntu.com/nobody
+# Debian wiki - https://wiki.debian.org/SystemGroups
+# """
+# daemon: Some unprivileged daemons that need to write to files on disk run as daemon.daemon (e.g., portmap, atd, probably others).
+# Daemons that don't need to own any files can run as nobody.nogroup instead,
+# and more complex or security conscious daemons run as dedicated users.
+# The daemon user is also handy for locally installed daemons.
+# """
+RUN apk add --no-cache deno ttf-dejavu \
+    && apk add --no-cache --virtual deps shadow python3 make g++ py3-setuptools libc6-compat \
+    && groupmod -n rocketchat nogroup \
+    && useradd -u 65533 -r -g rocketchat rocketchat
 
-# --chown requires Docker 17.12 and works only on Linux
-ADD --chown=rocketchat:rocketchat . /app
-ADD --chown=rocketchat:rocketchat entrypoint.sh /app/bundle/
+COPY --chown=rocketchat:rocketchat . /app
 
-RUN aptMark="$(apt-mark showmanual)" \
-    && apt-get install -y --no-install-recommends g++ make python ca-certificates \
-    && cd /app/bundle/programs/server \
-    && npm install \
-    && apt-mark auto '.*' > /dev/null \
-    && apt-mark manual $aptMark > /dev/null \
-    && find /usr/local -type f -executable -exec ldd '{}' ';' \
-    | awk '/=>/ { print $(NF-1) }' \
-    | sort -u \
-    | xargs -r dpkg-query --search \
-    | cut -d: -f1 \
-    | sort -u \
-    | xargs -r apt-mark manual \
-    && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
-    && npm cache clear --force
-
-VOLUME /app/uploads
-
-WORKDIR /app/bundle
-
-# needs a mongoinstance - defaults to container linking with alias 'mongo'
-ENV DEPLOY_METHOD=docker-preview \
+# needs a mongo instance - defaults to container linking with alias 'mongo'
+ENV DEPLOY_METHOD=docker \
     NODE_ENV=production \
-    MONGO_URL=mongodb://localhost:27017/rocketchat \
-    MONGO_OPLOG_URL=mongodb://localhost:27017/local \
+    MONGO_URL=mongodb://mongo:27017/rocketchat \
     HOME=/tmp \
     PORT=3000 \
     ROOT_URL=http://localhost:3000 \
     Accounts_AvatarStorePath=/app/uploads
 
+USER rocketchat
+
+RUN cd /app/bundle/programs/server \
+    && npm install --omit=dev \
+    && cd /app/bundle/programs/server \
+    && rm -rf npm/node_modules/sharp \
+    && npm install sharp@0.32.6 --no-save \
+    && mv node_modules/sharp npm/node_modules/sharp \
+    # End hack for sharp
+    && cd /app/bundle/programs/server/npm/node_modules/@vector-im/matrix-bot-sdk \
+    && npm install \
+    # # Start hack for isolated-vm...
+    # && rm -rf npm/node_modules/isolated-vm \
+    # && npm install isolated-vm@4.6.0 \
+    # && mv node_modules/isolated-vm npm/node_modules/isolated-vm \
+    # # End hack for isolated-vm
+    && cd /app/bundle/programs/server/npm \
+    && npm rebuild bcrypt --build-from-source \
+    && npm cache clear --force
+
+USER root
+
+RUN apk del deps
+
+USER rocketchat
+
+# TODO: remove hack once upstream builds are fixed
+COPY --chown=rocketchat:rocketchat matrix-sdk-crypto.linux-x64-musl.node /app/bundle/programs/server/npm/node_modules/@matrix-org/matrix-sdk-crypto-nodejs
+COPY --chown=rocketchat:rocketchat matrix-sdk-crypto.linux-x64-musl.node /app/bundle/programs/server/npm/node_modules/@vector-im/matrix-bot-sdk/node_modules/@matrix-org/matrix-sdk-crypto-nodejs
+
+VOLUME /app/uploads
+
+WORKDIR /app/bundle
+
 EXPOSE 3000
 
-RUN chmod +x /app/bundle/entrypoint.sh
-
-ENTRYPOINT /app/bundle/entrypoint.sh
+CMD ["node", "main.js"]
