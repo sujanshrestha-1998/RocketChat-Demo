@@ -5,8 +5,9 @@ FROM node:22-bullseye-slim AS builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    git curl python3 make g++ build-essential \
-    libcairo2 libpango1.0-0 libjpeg-dev libgif-dev librsvg2-dev
+    git curl unzip python3 make g++ build-essential \
+    libcairo2 libpango1.0-0 libjpeg-dev libgif-dev librsvg2-dev \
+    && apt-get clean
 
 # Install Node 22.14.0 using n
 RUN npm install -g n && n 22.14.0
