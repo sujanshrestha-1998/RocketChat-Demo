@@ -14,10 +14,14 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v3
 
-      - name: Show files in workspace
-        run: |
-          pwd
-          ls -la
-
       - name: Build Docker image
         run: docker build -t my-custom-rocketchat .
+
+      - name: Save Docker image as tar
+        run: docker save my-custom-rocketchat -o rocketchat.tar
+
+      - name: Upload Docker image as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rocketchat-image
+          path: rocketchat.tar
