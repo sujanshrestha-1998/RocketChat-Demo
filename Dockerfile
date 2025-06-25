@@ -1,18 +1,14 @@
 # --------------------
 # Stage 1: Builder
 # --------------------
-FROM node:22-bullseye-slim AS builder
+FROM node:22.14.0-bullseye-slim AS builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     git curl unzip python3 make g++ build-essential \
     libcairo2 libpango1.0-0 libjpeg-dev libgif-dev librsvg2-dev \
     && apt-get clean
-
-# Install Node 22.14.0 using n
-RUN npm install -g n && n 22.14.0
-ENV PATH="/usr/local/n/versions/node/22.14.0/bin:$PATH"
-
+    
 # Enable Yarn 4.7.0
 RUN corepack enable && corepack prepare yarn@4.7.0 --activate
 
@@ -28,11 +24,9 @@ ENV PATH="$DENO_INSTALL/bin:$PATH"
 # Set workdir and clone Rocket.Chat source
 WORKDIR /app
 RUN git clone --branch 7.7.1 https://github.com/RocketChat/Rocket.Chat.git .
-RUN ls -la
 
 # Install dependencies and build packages
-RUN yarn install
-RUN yarn build
+RUN yarn install && yarn build
 
 # Build Meteor bundle
 WORKDIR /app/apps/meteor
@@ -41,14 +35,10 @@ RUN meteor build --directory /app/build --architecture=os.linux.x86_64 --verbose
 # --------------------
 # Stage 2: Runtime
 # --------------------
-FROM node:22-bullseye-slim
+FROM node:22.14.0-bullseye-slim
 
 # Install runtime dependencies
-RUN apt-get update && apt-get install -y curl python3 make g++ build-essential
-
-# Install Node 22.14.0 for runtime
-RUN npm install -g n && n 22.14.0
-ENV PATH="/usr/local/n/versions/node/22.14.0/bin:$PATH"
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables (update as needed)
 ENV ROOT_URL=http://localhost \
@@ -61,7 +51,7 @@ WORKDIR /app
 COPY --from=builder /app/build/bundle /app
 
 # Install server dependencies in bundle
-RUN cd programs/server && yarn install --production
+RUN cd programs/server && yarn install --omit=dev && yarn cache clean
 
 EXPOSE 3000
 
