@@ -1,108 +1,68 @@
-FROM node:18-bookworm-slim
+# --------------------
+# Stage 1: Builder
+# --------------------
+FROM node:22-bullseye-slim AS builder
 
-# Install Deno
-ENV DENO_VERSION=1.37.1
-RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
-  && case "${dpkgArch##*-}" in \
-  amd64) ARCH='x86_64';; \
-  arm64) ARCH='aarch64';; \
-  *) echo "unsupported Deno architecture"; exit 1 ;; \
-  esac \
-  && set -ex \
-  && apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && rm -rf /var/lib/apt/lists/* \
-  && curl -fsSL https://dl.deno.land/release/v${DENO_VERSION}/deno-${ARCH}-unknown-linux-gnu.zip --output /tmp/deno-${ARCH}-unknown-linux-gnu.zip \
-  && echo "3ebb3c234c4ea5d914eb394af340e08ae0787e95ca8ec2c58b869752760faa00 /tmp/deno-x86_64-unknown-linux-gnu.zip" | sha256sum -c - \
-  && unzip /tmp/deno-${ARCH}-unknown-linux-gnu.zip -d /tmp \
-  && rm /tmp/deno-${ARCH}-unknown-linux-gnu.zip \
-  && chmod 755 /tmp/deno \
-  && mv /tmp/deno /usr/local/bin/deno \
-  && apt-mark auto '.*' > /dev/null \
-  && find /usr/local -type f -executable -exec ldd '{}' ';' \
-  | awk '/=>/ { print $(NF-1) }' \
-  | sort -u \
-  | xargs -r dpkg-query --search \
-  | cut -d: -f1 \
-  | sort -u \
-  | xargs -r apt-mark manual \
-  && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git curl unzip python3 make g++ build-essential \
+    libcairo2 libpango1.0-0 libjpeg-dev libgif-dev librsvg2-dev \
+    && apt-get clean
 
-# Create user first (without creating /app directory yet)
-RUN groupadd -r rocketchat \
-  && useradd -r -g rocketchat rocketchat
+# Install Node 22.14.0 using n
+RUN npm install -g n && n 22.14.0
+ENV PATH="/usr/local/n/versions/node/22.14.0/bin:$PATH"
 
-# Install build dependencies
-RUN set -eux \
-  && apt-get update \
-  && apt-get install -y --no-install-recommends \
-    fontconfig \
-    g++ \
-    make \
-    python3 \
-    ca-certificates \
-    curl \
-    gnupg \
-    git \
-    python3-dev \
-    build-essential \
-  && rm -rf /var/lib/apt/lists/*
+# Enable Yarn 4.7.0
+RUN corepack enable && corepack prepare yarn@4.7.0 --activate
 
-# Yarn is already installed in the Node.js image
+# Install Meteor
+ENV METEOR_ALLOW_SUPERUSER=true
+RUN curl https://install.meteor.com/ | sh
 
-# Clone specific version from repository
-RUN git clone --depth 1 --branch 7.1.6 https://github.com/RocketChat/Rocket.Chat.git /app
+# Install Deno (required for Rocket.Chat apps-engine build)
+RUN curl -fsSL https://deno.land/install.sh | sh
+ENV DENO_INSTALL="/root/.deno"
+ENV PATH="$DENO_INSTALL/bin:$PATH"
 
-# Create uploads directory and set permissions
-RUN mkdir -p /app/uploads \
-  && chown -R rocketchat:rocketchat /app
+# Set workdir and clone Rocket.Chat source
+WORKDIR /app
+RUN git clone --branch 7.7.1 https://github.com/RocketChat/Rocket.Chat.git .
+RUN ls -la
 
-VOLUME /app/uploads
+# Install dependencies and build packages
+RUN yarn install
+RUN yarn build
 
-# Now set the working directory
+# Build Meteor bundle
+WORKDIR /app/apps/meteor
+RUN meteor build --directory /app/build --architecture=os.linux.x86_64 --verbose
+
+# --------------------
+# Stage 2: Runtime
+# --------------------
+FROM node:22-bullseye-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y curl python3 make g++ build-essential
+
+# Install Node 22.14.0 for runtime
+RUN npm install -g n && n 22.14.0
+ENV PATH="/usr/local/n/versions/node/22.14.0/bin:$PATH"
+
+# Set environment variables (update as needed)
+ENV ROOT_URL=http://localhost \
+    MONGO_URL=mongodb://mongo:27017/rocketchat \
+    PORT=3000
+
 WORKDIR /app
 
-# Set environment variables
-ENV NODE_ENV=production
-ENV DEPLOY_METHOD=docker-official
-ENV MONGO_URL=mongodb://db:27017/meteor
-ENV HOME=/tmp
-ENV PORT=3000
-ENV ROOT_URL=http://localhost:3000
+# Copy built bundle from builder stage
+COPY --from=builder /app/build/bundle /app
 
-# Set Node.js memory limit and other build optimizations
-ENV NODE_OPTIONS="--max-old-space-size=4096"
-ENV METEOR_ALLOW_SUPERUSER=true
+# Install server dependencies in bundle
+RUN cd programs/server && yarn install --production
 
-# Install dependencies using Yarn (better workspace support)
-RUN set -eux \
-  && echo "Node version: $(node --version)" \
-  && echo "NPM version: $(npm --version)" \
-  && echo "Yarn version: $(yarn --version)" \
-  && echo "Installing dependencies with Yarn..." \
-  && yarn install --frozen-lockfile --network-timeout 300000
-
-# Build the application
-RUN set -eux \
-  && echo "Building application..." \
-  && yarn build
-
-# Install production dependencies in the meteor build using npm
-RUN set -eux \
-  && echo "Installing production dependencies..." \
-  && cd apps/meteor/.meteor/local/build/programs/server \
-  && npm install --unsafe-perm=true --production --timeout=300000
-
-# Clean up and set final permissions
-RUN set -eux \
-  && yarn cache clean \
-  && npm cache clear --force \
-  && chown -R rocketchat:rocketchat /app
-
-# Clean up build dependencies to reduce image size
-RUN apt-get purge -y --auto-remove g++ make python3-dev build-essential git \
-  && apt-get autoremove -y \
-  && apt-get clean
-
-USER rocketchat
-WORKDIR /app/apps/meteor/.meteor/local/build
 EXPOSE 3000
+
 CMD ["node", "main.js"]
