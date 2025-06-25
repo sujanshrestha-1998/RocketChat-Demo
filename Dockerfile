@@ -30,7 +30,7 @@ RUN yarn install && yarn build
 
 # Build Meteor bundle
 WORKDIR /app/apps/meteor
-RUN meteor build --directory /app/build --architecture=os.linux.x86_64 --verbose
+RUN meteor build --server-only --directory /app/build --architecture=os.linux.x86_64 --verbose
 
 # --------------------
 # Stage 2: Runtime
