@@ -26,8 +26,7 @@ WORKDIR /app
 RUN git clone --branch 7.7.1 https://github.com/RocketChat/Rocket.Chat.git .
 
 # Install dependencies and build packages
-RUN yarn install
-RUN yarn build
+RUN yarn install && yarn build
 
 # Build Meteor bundle
 WORKDIR /app/apps/meteor
