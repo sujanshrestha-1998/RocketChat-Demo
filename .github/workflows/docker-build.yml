@@ -22,7 +22,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Docker image
-        run: docker build -t ghcr.io/${{ github.repository_owner }}/custom-rocketchat:latest .
+        run: docker build -t ghcr.io/sujanshrestha-1998/custom-rocketchat:latest .
 
       - name: Push Docker image
-        run: docker push ghcr.io/${{ github.repository_owner }}/custom-rocketchat:latest
+        run: docker push ghcr.io/sujanshrestha-1998/custom-rocketchat:latest
