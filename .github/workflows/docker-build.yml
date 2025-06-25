@@ -14,15 +14,14 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v3
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build Docker image
-        run: docker build -t ghcr.io/sujanshrestha-1998/custom-rocketchat:latest .
+        run: docker build -t my-custom-rocketchat .
 
-      - name: Push Docker image
-        run: docker push ghcr.io/sujanshrestha-1998/custom-rocketchat:latest
+      - name: Save Docker image as tar
+        run: docker save my-custom-rocketchat -o rocketchat.tar
+
+      - name: Upload Docker image as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rocketchat-image
+          path: rocketchat.tar
